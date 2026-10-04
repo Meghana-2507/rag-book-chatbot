@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+    <title>RAG Book Chatbot</title>
+
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+
+    <div class="container">
+
+        <header>
+            <h1>📚 RAG Book Chatbot</h1>
+            <p>Ask questions about the available books</p>
+        </header>
+
+        <main>
+
+            <div class="question-section">
+
+                <label for="question">
+                    Your Question
+                </label>
+
+                <textarea
+                    id="question"
+                    placeholder="Example: What is Mr. Darcy's opinion of Elizabeth Bennet?"
+                    rows="4"
+                ></textarea>
+
+                <button id="askButton">
+                    Ask Question
+                </button>
+
+            </div>
+
+
+            <div id="loading" class="hidden">
+                Searching the books and generating an answer...
+            </div>
+
+
+            <div id="error" class="error hidden"></div>
+
+
+            <section id="answerSection" class="hidden">
+
+                <h2>Answer</h2>
+
+                <div id="answer" class="answer-box"></div>
+
+
+                <h2>Evidence</h2>
+
+                <div id="evidence" class="answer-box"></div>
+
+
+                <div class="book-info">
+
+                    <div>
+                        <strong>Book:</strong>
+                        <span id="book"></span>
+                    </div>
+
+                    <div>
+                        <strong>Author:</strong>
+                        <span id="author"></span>
+                    </div>
+
+                </div>
+
+            </section>
+
+        </main>
+
+    </div>
+
+    <script src="script.js"></script>
+
+</body>
+
+</html>
