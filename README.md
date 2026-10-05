@@ -2,34 +2,36 @@
 
 A Retrieval-Augmented Generation (RAG) based chatbot that allows users to ask natural-language questions about a collection of public-domain books.
 
-The system retrieves relevant book content using MongoDB Atlas Vector Search and uses a Large Language Model (LLM) to generate answers based only on the retrieved book content.
+The system retrieves relevant book content using **MongoDB Atlas Vector Search** and uses **Google Gemini** to generate answers based only on the retrieved book content.
 
 ## Features
 
-* Uses public-domain books from Project Gutenberg
+* Uses 15 public-domain books from Project Gutenberg
 * Stores book metadata in MySQL
 * Reads book metadata from MySQL
-* Loads book text from local text files
+* Loads book content from text files
 * Splits book content into overlapping chunks
-* Generates vector embeddings for book chunks
+* Generates 384-dimensional vector embeddings using `all-MiniLM-L6-v2`
 * Stores chunks and embeddings in MongoDB Atlas
 * Uses MongoDB Atlas Vector Search for semantic retrieval
 * Accepts natural-language questions
-* Uses Google Gemini for embeddings and answer generation
+* Uses Google Gemini for final answer generation
 * Returns the answer, evidence, book title, and author
 * Provides a web interface using HTML, CSS, and JavaScript
 * Handles questions unrelated to the available books
+* Uses a relevance threshold to reject unrelated questions
 
 ## Architecture
 
 ```text
 User Question
       ↓
-Frontend
+HTML/CSS/JavaScript Frontend
       ↓
 FastAPI Backend
       ↓
-Question Embedding
+Local SentenceTransformer Embedding
+(all-MiniLM-L6-v2)
       ↓
 MongoDB Atlas Vector Search
       ↓
@@ -46,6 +48,8 @@ Frontend
 
 * Python
 * FastAPI
+* Sentence Transformers
+* `all-MiniLM-L6-v2`
 * MySQL
 * MongoDB Atlas
 * MongoDB Atlas Vector Search
@@ -54,11 +58,13 @@ Frontend
 * CSS
 * JavaScript
 * Project Gutenberg
+* Git
 
 ## Project Structure
 
 ```text
 rag-book-chatbot/
+
 │
 ├── data/
 │   ├── adventures_of_sherlock_holmes.txt
@@ -87,7 +93,7 @@ rag-book-chatbot/
 │   ├── check_mongodb.py
 │   ├── download_book.py
 │   ├── download_more_books.py
-│   ├── embed_books_resume.py
+│   ├── embed_books_local.py
 │   ├── insert_book.py
 │   └── rag_engine.py
 │
@@ -120,11 +126,35 @@ The chatbot uses 15 public-domain books from Project Gutenberg.
 | 14 | Wuthering Heights                       | Emily Brontë                |
 | 15 | The Count of Monte Cristo               | Alexandre Dumas             |
 
+## Dataset Processing
+
+The 15 books are stored as text files in the `data/` directory.
+
+The application:
+
+1. Reads book metadata from MySQL.
+2. Maps each book to its corresponding text file.
+3. Removes unnecessary Project Gutenberg header/footer content.
+4. Splits the book text into overlapping chunks.
+5. Generates vector embeddings for the chunks.
+6. Stores the chunks, metadata, and embeddings in MongoDB Atlas.
+
+### Current Dataset Statistics
+
+```text
+Books: 15
+Total chunks: 14,089
+Chunk size: 1,000 characters
+Chunk overlap: 200 characters
+Embedding model: all-MiniLM-L6-v2
+Embedding dimensions: 384
+```
+
 ## Database Design
 
 ### MySQL
 
-MySQL stores the metadata of each book.
+MySQL stores the metadata for each book.
 
 Example fields:
 
@@ -136,7 +166,7 @@ source
 source_url
 ```
 
-The application reads book metadata from MySQL and uses the corresponding text files for processing.
+The application reads the book metadata from MySQL and uses the corresponding text files for processing.
 
 ### MongoDB Atlas
 
@@ -150,6 +180,7 @@ title
 author
 source
 source_url
+chunk_index
 chunk_text
 embedding
 ```
@@ -160,6 +191,8 @@ MongoDB configuration:
 Database: rag_book_chatbot
 Collection: book_chunks
 Vector Index: vector_index
+Similarity: cosine
+Embedding dimensions: 384
 ```
 
 ## Text Chunking
@@ -177,42 +210,53 @@ The overlap helps preserve context between neighboring chunks.
 
 ## Embeddings
 
-The project uses Google's:
+The project uses the open-source Sentence Transformers model:
 
 ```text
-gemini-embedding-2
+all-MiniLM-L6-v2
 ```
 
-to convert book chunks and user questions into numerical vector representations.
+The model generates **384-dimensional embeddings** for both book chunks and user questions.
 
-The book embeddings are stored in MongoDB Atlas and used for semantic similarity search.
+These embeddings are stored in MongoDB Atlas and used by MongoDB Atlas Vector Search for semantic similarity retrieval.
+
+### Why Local Embeddings?
+
+The initial implementation used Google's embedding API. However, the available Gemini free-tier embedding quota was insufficient for processing the complete 15-book dataset.
+
+Therefore, the embedding step was moved to the local `all-MiniLM-L6-v2` model.
+
+Google Gemini is still used as the LLM for final answer generation.
+
+This keeps the RAG architecture intact while allowing the complete dataset to be processed locally.
 
 ## RAG Workflow
 
 When a user asks a question:
 
 1. The frontend sends the question to the FastAPI backend.
-2. The question is converted into an embedding.
-3. MongoDB Atlas Vector Search finds relevant book chunks.
+2. The question is converted into a 384-dimensional embedding using `all-MiniLM-L6-v2`.
+3. MongoDB Atlas Vector Search finds the most relevant book chunks.
 4. The retrieved chunks are combined into context.
 5. The question and retrieved context are sent to the Gemini LLM.
-6. The LLM generates an answer using the retrieved book content.
-7. The API returns the answer and supporting information to the frontend.
+6. Gemini generates an answer using the retrieved book content.
+7. The API returns the answer, evidence, book, author, and retrieval information.
+8. The frontend displays the result.
 
 The core RAG flow is:
 
 ```text
 Question
    ↓
-Embedding
+Local Embedding
    ↓
-Vector Search
+MongoDB Atlas Vector Search
    ↓
-Relevant Chunks
+Relevant Book Chunks
    ↓
-Context
+Retrieved Context
    ↓
-LLM
+Gemini LLM
    ↓
 Answer + Evidence
 ```
@@ -243,19 +287,19 @@ Request:
 
 ```json
 {
-  "question": "What is Mr. Darcy's opinion of Elizabeth Bennet?"
+  "question": "Who is Mr. Darcy?"
 }
 ```
 
-The response contains fields such as:
+Example response:
 
 ```json
 {
-  "question": "...",
-  "answer": "...",
-  "evidence": "...",
-  "book": "...",
-  "author": "...",
+  "question": "Who is Sherlock Holmes?",
+  "answer": "Sherlock Holmes is a detective...",
+  "evidence": "\"My name is Sherlock Holmes. It is my business to know what other people don’t know.\"",
+  "book": "The Adventures of Sherlock Holmes",
+  "author": "Arthur Conan Doyle",
   "retrieved_chunks": 5
 }
 ```
@@ -285,6 +329,19 @@ venv\Scripts\activate
 
 ```bash
 pip install -r requirements.txt
+```
+
+The main dependencies include:
+
+```text
+python-dotenv
+pymongo
+mysql-connector-python
+google-genai
+requests
+fastapi
+uvicorn
+sentence-transformers
 ```
 
 ### 4. Configure Environment Variables
@@ -322,6 +379,12 @@ The API will run at:
 http://127.0.0.1:8000
 ```
 
+Interactive API documentation is available at:
+
+```text
+http://127.0.0.1:8000/docs
+```
+
 ### Start the Frontend
 
 Open another terminal:
@@ -336,36 +399,44 @@ Then open:
 http://127.0.0.1:5500
 ```
 
-## Embedding Books
+## Embedding the Books
 
-The project uses the resume-safe embedding script:
+The complete dataset can be processed using:
 
 ```bash
-python scripts/embed_books_resume.py
+python scripts/embed_books_local.py
 ```
 
 The script:
 
-* Processes Books 4–15
-* Checks MongoDB for existing chunks
-* Skips chunks that are already embedded
-* Creates embeddings in batches
-* Stores embeddings and metadata in MongoDB
-* Stops safely when an API error occurs
-* Can be run again later without re-embedding successfully stored chunks
+* Reads book metadata from MySQL
+* Loads the corresponding book text files
+* Splits the content into chunks
+* Generates local embeddings using `all-MiniLM-L6-v2`
+* Stores chunks and embeddings in MongoDB Atlas
+* Stores book metadata along with each chunk
+* Processes embeddings in batches
+
+The completed dataset currently contains:
+
+```text
+15 books
+14,089 chunks
+384-dimensional embeddings
+```
 
 ## Example Questions
 
 Questions can be asked about the books in the dataset, for example:
 
 ```text
-What is the main conflict in Frankenstein?
-
-Who is Elizabeth Bennet?
-
-What happens to Dorian Gray?
-
 Who is Sherlock Holmes?
+
+Who is Mr. Darcy?
+
+Who creates the creature in Frankenstein?
+
+What happens when Alice enters the rabbit hole?
 
 What is the relationship between Jane Eyre and Mr. Rochester?
 
@@ -376,9 +447,18 @@ What is the central journey in The Count of Monte Cristo?
 
 ## Out-of-Domain Questions
 
-The chatbot is designed for questions related to the available books.
+The chatbot is designed specifically for questions related to the available books.
 
-For unrelated questions, the system is instructed to politely explain that it is designed for book-related questions rather than answering using unrelated outside knowledge.
+A relevance threshold is applied to the vector-search results. If a question does not appear sufficiently related to the book collection, the chatbot responds with a book-related redirection instead of generating an answer from unrelated knowledge.
+
+For example:
+
+```text
+This chatbot is designed for book-related questions.
+Please ask something about one of the available books.
+```
+
+This helps prevent unrelated questions from being answered using irrelevant retrieved content.
 
 ## Security
 
@@ -397,29 +477,45 @@ The `.gitignore` file excludes `.env` and common Python environment/cache files.
 
 ## Current Project Status
 
-| Component                      | Status                 |
-| ------------------------------ | ---------------------- |
-| Book metadata in MySQL         | ✅ 15 books             |
-| Book text files                | ✅ 15 books             |
-| MongoDB Atlas connection       | ✅ Working              |
-| MongoDB Vector Search index    | ✅ Configured           |
-| FastAPI backend                | ✅ Implemented          |
-| Frontend                       | ✅ Implemented          |
-| Frontend-to-backend connection | ✅ Tested               |
-| Book embeddings                | ⚠️ Partially completed |
-| Books currently embedded       | ⚠️ Books 1–3           |
-| Books awaiting embeddings      | ⏳ Books 4–15           |
-| End-to-end RAG testing         | ⏳ Pending              |
+| Component                      | Status        |
+| ------------------------------ | ------------- |
+| Public-domain book dataset     | ✅ 15 books    |
+| Book metadata in MySQL         | ✅ 15 books    |
+| Book text files                | ✅ 15 books    |
+| Text chunking                  | ✅ Completed   |
+| Local embeddings               | ✅ Completed   |
+| MongoDB Atlas                  | ✅ Working     |
+| MongoDB Vector Search          | ✅ Configured  |
+| Vector index                   | ✅ Ready       |
+| Stored book chunks             | ✅ 14,089      |
+| FastAPI backend                | ✅ Implemented |
+| RAG retrieval                  | ✅ Tested      |
+| Gemini LLM integration         | ✅ Working     |
+| Structured responses           | ✅ Working     |
+| Out-of-domain handling         | ✅ Tested      |
+| Frontend                       | ✅ Implemented |
+| Frontend-to-backend connection | ✅ Tested      |
+| End-to-end RAG application     | ✅ Working     |
 
-### Important Note
+## Testing
 
-The remaining book embeddings and end-to-end RAG testing depend on availability of the Gemini API embedding quota.
+The application has been tested with questions from multiple books, including:
 
-Once the embeddings are completed, the final testing will cover:
+* *The Adventures of Sherlock Holmes*
+* *Pride and Prejudice*
+* *Frankenstein; Or, The Modern Prometheus*
 
-* Questions about different books
-* Retrieval of relevant chunks
-* Generated answers and evidence
-* Book and author identification
-* Unrelated/out-of-domain questions
-* Frontend-to-backend end-to-end behavior
+Out-of-domain questions have also been tested to verify that the chatbot redirects users to book-related questions.
+
+## Conclusion
+
+This project demonstrates a complete RAG pipeline using:
+
+* MySQL for book metadata
+* Local Sentence Transformer embeddings
+* MongoDB Atlas Vector Search for semantic retrieval
+* Google Gemini for answer generation
+* FastAPI for the backend API
+* HTML, CSS, and JavaScript for the frontend
+
+The system retrieves relevant book content before generating an answer, helping keep responses grounded in the available book dataset.

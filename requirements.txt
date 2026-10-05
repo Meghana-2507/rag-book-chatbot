@@ -5,3 +5,4 @@ google-genai
 requests
 fastapi
 uvicorn
+sentence-transformers
